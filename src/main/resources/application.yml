@@ -1,0 +1,3 @@
+spring:
+  application:
+    name: iso8583-authorizer
