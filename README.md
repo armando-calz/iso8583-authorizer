@@ -42,7 +42,7 @@ flowchart LR
 
 ## Roadmap
 
-- [ ] ISO 8583 codec: MTI, primary and secondary bitmaps, fixed and LLVAR/LLLVAR fields
+- [x] ISO 8583 codec: MTI, primary and secondary bitmaps, fixed and LLVAR/LLLVAR fields
 - [ ] TCP server with length-prefixed framing on virtual threads
 - [ ] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
 - [ ] Duplicate transmission detection with idempotent responses
