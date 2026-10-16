@@ -70,9 +70,28 @@ public final class IsoMessage {
         return Objects.hash(mti, fields);
     }
 
+    /** Safe for logs: the PAN is masked and track 2 and ICC data are never printed. */
     @Override
     public String toString() {
-        return "IsoMessage[" + mti + " " + fields + "]";
+        StringBuilder out = new StringBuilder("IsoMessage[").append(mti);
+        fields.forEach((field, value) -> out.append(' ').append(field).append('=').append(masked(field, value)));
+        return out.append(']').toString();
+    }
+
+    private static String masked(int field, String value) {
+        return switch (field) {
+            case Iso8583Fields.PAN -> maskPan(value);
+            case Iso8583Fields.TRACK_2_DATA, Iso8583Fields.ICC_DATA -> "<redacted>";
+            default -> value;
+        };
+    }
+
+    /** First 6 and last 4 digits, the most PCI DSS allows to display. */
+    public static String maskPan(String pan) {
+        if (pan.length() <= 10) {
+            return "*".repeat(pan.length());
+        }
+        return pan.substring(0, 6) + "*".repeat(pan.length() - 10) + pan.substring(pan.length() - 4);
     }
 
     public static final class Builder {
