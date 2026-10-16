@@ -43,11 +43,11 @@ flowchart LR
 ## Roadmap
 
 - [x] ISO 8583 codec: MTI, primary and secondary bitmaps, fixed and LLVAR/LLLVAR fields
-- [ ] TCP server with length-prefixed framing on virtual threads
+- [x] TCP server with length-prefixed framing on virtual threads
 - [ ] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
 - [ ] Duplicate transmission detection with idempotent responses
 - [ ] Reversals (`0400`) that restore available credit exactly once
-- [ ] Network management (`0800` echo)
+- [x] Network management (`0800` sign-on, sign-off, echo)
 - [ ] EMV: ARQC verification and ARPC generation with test keys
 - [ ] Terminal simulator CLI
 - [ ] Docker Compose setup
