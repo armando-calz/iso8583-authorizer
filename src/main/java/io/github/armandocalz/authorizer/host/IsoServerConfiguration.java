@@ -1,5 +1,6 @@
 package io.github.armandocalz.authorizer.host;
 
+import io.github.armandocalz.authorizer.authorization.AuthorizationService;
 import io.github.armandocalz.authorizer.network.IsoServer;
 import io.github.armandocalz.authorizer.network.MessageHandler;
 import java.io.IOException;
@@ -14,8 +15,10 @@ import org.springframework.context.annotation.Configuration;
 class IsoServerConfiguration {
 
     @Bean
-    MessageRouter messageRouter() {
-        return new MessageRouter(Map.of("0800", new NetworkManagementHandler()));
+    MessageRouter messageRouter(AuthorizationService authorizationService) {
+        return new MessageRouter(Map.of(
+                "0100", new AuthorizationHandler(authorizationService),
+                "0800", new NetworkManagementHandler()));
     }
 
     @Bean

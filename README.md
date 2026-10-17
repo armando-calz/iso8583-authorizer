@@ -44,7 +44,7 @@ flowchart LR
 
 - [x] ISO 8583 codec: MTI, primary and secondary bitmaps, fixed and LLVAR/LLLVAR fields
 - [x] TCP server with length-prefixed framing on virtual threads
-- [ ] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
+- [x] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
 - [ ] Duplicate transmission detection with idempotent responses
 - [ ] Reversals (`0400`) that restore available credit exactly once
 - [x] Network management (`0800` sign-on, sign-off, echo)
@@ -53,6 +53,23 @@ flowchart LR
 - [ ] Docker Compose setup
 
 Design decisions are recorded as ADRs in [`docs/adr`](docs/adr).
+
+## Authorization rules
+
+Applied in order; the first rule that fails decides the response code (field 39).
+
+| Rule | Declined with |
+|---|---|
+| Processing code is a purchase (`00xxxx`) | `12` invalid transaction |
+| PAN passes the Luhn check and belongs to a known card | `14` invalid card number |
+| Card is active (not blocked, lost or stolen) | `62` restricted card |
+| Card is not expired | `54` expired card |
+| Expiry date sent matches the card's | `05` do not honor |
+| Amount is positive | `13` invalid amount |
+| Currency matches the credit account's | `57` transaction not permitted |
+| Available credit covers the amount | `51` insufficient funds |
+
+An approval (`00`) returns a 6-digit authorization code (field 38) and holds the amount against the available credit, under a row lock on the account ([ADR 0003](docs/adr/0003-issuer-data-in-postgresql-with-tokenized-pans.md)). Card numbers are stored only as HMAC tokens plus BIN and last 4 digits.
 
 ## Scope and sources
 
