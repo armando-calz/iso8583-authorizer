@@ -14,10 +14,13 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
+import io.github.armandocalz.authorizer.PostgresTestcontainer;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.context.annotation.Import;
 
 /** The running application, reached over TCP like a terminal would. */
 @SpringBootTest(properties = "authorizer.iso.port=0")
+@Import(PostgresTestcontainer.class)
 class NetworkManagementIT {
 
     @Autowired IsoServerLifecycle server;
