@@ -1,3 +1,12 @@
 spring:
   application:
     name: iso8583-authorizer
+  threads:
+    virtual:
+      enabled: true
+
+authorizer:
+  iso:
+    port: 8583
+  # Key for tokenizing PANs (HMAC-SHA256), hex. DEVELOPMENT VALUE ONLY: a real issuer keeps it in an HSM or secrets manager.
+  pan-token-key: 646576706b2d646576706b2d646576706b2d646576706b2d646576706b2d6465
