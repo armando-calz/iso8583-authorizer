@@ -45,7 +45,7 @@ flowchart LR
 - [x] ISO 8583 codec: MTI, primary and secondary bitmaps, fixed and LLVAR/LLLVAR fields
 - [x] TCP server with length-prefixed framing on virtual threads
 - [x] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
-- [ ] Duplicate transmission detection with idempotent responses
+- [x] Duplicate transmission detection with idempotent responses (`0100` copies and `0101` repeats)
 - [ ] Reversals (`0400`) that restore available credit exactly once
 - [x] Network management (`0800` sign-on, sign-off, echo)
 - [ ] EMV: ARQC verification and ARPC generation with test keys
@@ -70,6 +70,8 @@ Applied in order; the first rule that fails decides the response code (field 39)
 | Available credit covers the amount | `51` insufficient funds |
 
 An approval (`00`) returns a 6-digit authorization code (field 38) and holds the amount against the available credit, under a row lock on the account ([ADR 0003](docs/adr/0003-issuer-data-in-postgresql-with-tokenized-pans.md)). Card numbers are stored only as HMAC tokens plus BIN and last 4 digits.
+
+**Retransmissions** (same terminal, RRN and STAN) get the original answer and authorization code, with nothing held again, even when copies arrive simultaneously. The same key with different card, amount or currency is declined with `94` ([ADR 0004](docs/adr/0004-duplicate-transmissions-answered-with-the-original-decision.md)).
 
 ## Scope and sources
 

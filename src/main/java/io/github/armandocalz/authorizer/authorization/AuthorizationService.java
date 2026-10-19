@@ -14,7 +14,9 @@ import java.time.YearMonth;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Issuer authorization rules, applied in order; the first that fails decides the response code.
@@ -33,6 +35,9 @@ import org.springframework.transaction.annotation.Transactional;
  *
  * An approval holds the amount against the account's available credit. The account row is
  * locked while checking and holding, so concurrent authorizations cannot overspend it.
+ *
+ * <p>A retransmission (same terminal, RRN and STAN) is answered with the original decision and
+ * holds nothing; the same key with different transaction data is declined with 94 (ADR 0004).
  */
 @Service
 public class AuthorizationService {
@@ -42,23 +47,40 @@ public class AuthorizationService {
     private final AuthorizationLog log;
     private final PanTokenizer tokenizer;
     private final Clock clock;
+    private final TransactionTemplate transaction;
     private final SecureRandom random = new SecureRandom();
 
-    public AuthorizationService(
-            CardRepository cards, CreditAccountRepository accounts, AuthorizationLog log, PanTokenizer tokenizer, Clock clock) {
+    public AuthorizationService(CardRepository cards, CreditAccountRepository accounts, AuthorizationLog log,
+            PanTokenizer tokenizer, Clock clock, PlatformTransactionManager transactionManager) {
         this.cards = cards;
         this.accounts = accounts;
         this.log = log;
         this.tokenizer = tokenizer;
         this.clock = clock;
+        this.transaction = new TransactionTemplate(transactionManager);
     }
 
-    @Transactional
     public AuthorizationDecision authorize(AuthorizationRequest request) {
+        try {
+            return transaction.execute(status -> authorizeOnce(request));
+        } catch (DuplicateKeyException e) {
+            // A copy of this request committed first while we were deciding; our transaction,
+            // including any hold, was rolled back. Answer as a retransmission.
+            return transaction.execute(status -> authorizeOnce(request));
+        }
+    }
+
+    private AuthorizationDecision authorizeOnce(AuthorizationRequest request) {
         String panToken = tokenizer.token(request.pan());
+        Optional<RecordedAuthorization> earlier = log.findByTransactionKey(request.terminalId(), request.rrn(), request.stan());
+        if (earlier.isPresent()) {
+            return earlier.get().matches(request, panToken)
+                    ? earlier.get().decision()
+                    : AuthorizationDecision.declined(ResponseCode.DUPLICATE_TRANSMISSION);
+        }
+
         Optional<Card> card = Luhn.isValid(request.pan()) ? cards.findByToken(panToken) : Optional.empty();
         UUID accountId = card.map(Card::accountId).orElse(null);
-
         AuthorizationDecision decision = decide(request, card);
         log.record(request, panToken, accountId, decision);
         return decision;

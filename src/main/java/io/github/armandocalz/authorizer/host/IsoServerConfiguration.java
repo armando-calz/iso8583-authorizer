@@ -16,8 +16,10 @@ class IsoServerConfiguration {
 
     @Bean
     MessageRouter messageRouter(AuthorizationService authorizationService) {
+        AuthorizationHandler authorization = new AuthorizationHandler(authorizationService);
         return new MessageRouter(Map.of(
-                "0100", new AuthorizationHandler(authorizationService),
+                "0100", authorization,
+                "0101", authorization, // repeat: a retransmission the terminal flags explicitly
                 "0800", new NetworkManagementHandler()));
     }
 

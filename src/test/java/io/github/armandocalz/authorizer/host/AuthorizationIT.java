@@ -1,5 +1,6 @@
 package io.github.armandocalz.authorizer.host;
 
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AMOUNT;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AUTHORIZATION_ID_RESPONSE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.CURRENCY_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.EXPIRATION_DATE;
@@ -7,6 +8,7 @@ import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RESPONSE_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RETRIEVAL_REFERENCE_NUMBER;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.STAN;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.TRANSMISSION_DATE_TIME;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.armandocalz.authorizer.PostgresTestcontainer;
@@ -178,6 +180,97 @@ class AuthorizationIT {
 
             assertThat(responseCode(AuthorizationRequests.purchase(card.pan(), card.expiry(), 100).remove(EXPIRATION_DATE)))
                     .isEqualTo("30");
+        }
+    }
+
+    @Nested
+    class Retransmissions {
+
+        private long recordedRows(UUID accountId) {
+            return jdbc.sql("SELECT count(*) FROM authorizations WHERE account_id = :id").param("id", accountId)
+                    .query(Long.class).single();
+        }
+
+        @Test
+        void sameRequestGetsTheOriginalResponseAndHoldsOnce() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+
+            IsoMessage original = send(request);
+            // A retransmission may carry a new transmission date/time (field 7)
+            IsoMessage retransmitted = send(request.toBuilder("0100").set(TRANSMISSION_DATE_TIME, "1018093000").build());
+
+            assertThat(retransmitted.require(RESPONSE_CODE)).isEqualTo("00");
+            assertThat(retransmitted.require(AUTHORIZATION_ID_RESPONSE)).isEqualTo(original.require(AUTHORIZATION_ID_RESPONSE));
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+            assertThat(recordedRows(card.accountId())).isEqualTo(1);
+        }
+
+        @Test
+        void repeatMtiIsAnsweredLikeTheOriginal() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            IsoMessage original = send(request);
+
+            IsoMessage repeat = send(request.toBuilder("0101").build());
+
+            assertThat(repeat.mti()).isEqualTo("0110");
+            assertThat(repeat.require(AUTHORIZATION_ID_RESPONSE)).isEqualTo(original.require(AUTHORIZATION_ID_RESPONSE));
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+        }
+
+        @Test
+        void sameKeyWithDifferentDataIs94() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            send(request);
+
+            assertThat(send(request.toBuilder("0100").set(AMOUNT, "%012d".formatted(30_000)).build()).require(RESPONSE_CODE))
+                    .isEqualTo("94");
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+        }
+
+        @Test
+        void aDeclineIsRepeatedNotReevaluated() throws Exception {
+            TestCard card = activeCard(10_000);
+            IsoMessage tooMuch = AuthorizationRequests.purchase(card.pan(), card.expiry(), 20_000).build();
+            assertThat(send(tooMuch).require(RESPONSE_CODE)).isEqualTo("51");
+
+            assertThat(send(tooMuch).require(RESPONSE_CODE)).isEqualTo("51");
+            assertThat(recordedRows(card.accountId())).isEqualTo(1);
+        }
+
+        @Test
+        void aNewStanIsANewTransaction() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage first = AuthorizationRequests.purchase(card.pan(), card.expiry(), 10_000).build();
+            send(first);
+
+            IsoMessage second = first.toBuilder("0100").set(STAN, "999998").build();
+            assertThat(send(second).require(RESPONSE_CODE)).isEqualTo("00");
+            assertThat(available(card.accountId())).isEqualTo(80_000);
+        }
+
+        @Test
+        void simultaneousCopiesAreAuthorizedOnce() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = AuthorizationRequests.purchase(card.pan(), card.expiry(), 10_000).build();
+
+            List<Future<IsoMessage>> responses = new ArrayList<>();
+            try (ExecutorService terminals = Executors.newVirtualThreadPerTaskExecutor()) {
+                for (int i = 0; i < 20; i++) {
+                    responses.add(terminals.submit(() -> send(request)));
+                }
+                List<IsoMessage> results = new ArrayList<>();
+                for (Future<IsoMessage> response : responses) {
+                    results.add(response.get());
+                }
+                assertThat(results).extracting(r -> r.require(RESPONSE_CODE)).containsOnly("00");
+                assertThat(results).extracting(r -> r.require(AUTHORIZATION_ID_RESPONSE))
+                        .containsOnly(results.getFirst().require(AUTHORIZATION_ID_RESPONSE));
+            }
+            assertThat(available(card.accountId())).isEqualTo(90_000);
+            assertThat(recordedRows(card.accountId())).isEqualTo(1);
         }
     }
 
