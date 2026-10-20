@@ -4,6 +4,8 @@ import io.github.armandocalz.authorizer.authorization.AuthorizationDecision;
 import io.github.armandocalz.authorizer.authorization.AuthorizationLog;
 import io.github.armandocalz.authorizer.authorization.AuthorizationRequest;
 import io.github.armandocalz.authorizer.authorization.RecordedAuthorization;
+import io.github.armandocalz.authorizer.authorization.ReversibleAuthorization;
+import io.github.armandocalz.authorizer.authorization.TransactionKey;
 import io.github.armandocalz.authorizer.iso8583.ResponseCode;
 import java.util.Optional;
 import java.util.UUID;
@@ -60,5 +62,32 @@ class JdbcAuthorizationLog implements AuthorizationLog {
                                 ResponseCode.fromCode(rs.getString("response_code")).orElseThrow(),
                                 rs.getString("auth_code"))))
                 .optional();
+    }
+
+    @Override
+    public Optional<ReversibleAuthorization> findForReversal(TransactionKey key) {
+        return jdbc.sql("""
+                SELECT id, pan_token, account_id, amount_minor, response_code, reversed_at
+                FROM authorizations
+                WHERE terminal_id = :terminal AND rrn = :rrn AND stan = :stan
+                """)
+                .param("terminal", key.terminalId())
+                .param("rrn", key.rrn())
+                .param("stan", key.stan())
+                .query((rs, rowNum) -> new ReversibleAuthorization(
+                        rs.getLong("id"),
+                        rs.getString("pan_token"),
+                        rs.getObject("account_id", UUID.class),
+                        rs.getLong("amount_minor"),
+                        ResponseCode.APPROVED.code().equals(rs.getString("response_code")),
+                        rs.getObject("reversed_at") != null))
+                .optional();
+    }
+
+    @Override
+    public void markReversed(long authorizationId) {
+        jdbc.sql("UPDATE authorizations SET reversed_at = now() WHERE id = :id AND reversed_at IS NULL")
+                .param("id", authorizationId)
+                .update();
     }
 }

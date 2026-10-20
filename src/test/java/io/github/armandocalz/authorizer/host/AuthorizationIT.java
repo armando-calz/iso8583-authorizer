@@ -4,6 +4,8 @@ import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AMOUNT;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AUTHORIZATION_ID_RESPONSE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.CURRENCY_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.EXPIRATION_DATE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ORIGINAL_DATA_ELEMENTS;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PAN;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RESPONSE_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RETRIEVAL_REFERENCE_NUMBER;
@@ -271,6 +273,141 @@ class AuthorizationIT {
             }
             assertThat(available(card.accountId())).isEqualTo(90_000);
             assertThat(recordedRows(card.accountId())).isEqualTo(1);
+        }
+    }
+
+    @Nested
+    class Reversals {
+
+        private String reverse(IsoMessage.Builder reversal) throws Exception {
+            IsoMessage response = send(reversal.build());
+            assertThat(response.mti()).isEqualTo("0410");
+            return response.require(RESPONSE_CODE);
+        }
+
+        @Test
+        void releasesTheHoldOfAnApprovedAuthorization() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            assertThat(send(purchase).require(RESPONSE_CODE)).isEqualTo("00");
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase))).isEqualTo("00");
+
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+            assertThat(jdbc.sql("SELECT reversed_at IS NOT NULL FROM authorizations WHERE account_id = :id")
+                    .param("id", card.accountId()).query(Boolean.class).single()).isTrue();
+        }
+
+        @Test
+        void repeatedReversalsReleaseOnlyOnce() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            send(purchase);
+            send(AuthorizationRequests.purchase(card.pan(), card.expiry(), 10_000).build()); // another, still held
+            IsoMessage reversal = AuthorizationRequests.reversalOf(purchase).build();
+
+            assertThat(reverse(reversal.toBuilder("0400"))).isEqualTo("00");
+            assertThat(reverse(reversal.toBuilder("0400"))).isEqualTo("00");
+            assertThat(reverse(reversal.toBuilder("0401"))).isEqualTo("00");
+
+            assertThat(available(card.accountId())).isEqualTo(90_000);
+        }
+
+        @Test
+        void reversingADeclineReleasesNothing() throws Exception {
+            TestCard card = activeCard(10_000);
+            send(AuthorizationRequests.purchase(card.pan(), card.expiry(), 4_000).build());
+            IsoMessage declined = AuthorizationRequests.purchase(card.pan(), card.expiry(), 20_000).build();
+            assertThat(send(declined).require(RESPONSE_CODE)).isEqualTo("51");
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(declined))).isEqualTo("00");
+            assertThat(available(card.accountId())).isEqualTo(6_000);
+        }
+
+        @Test
+        void anOriginalArrivingAfterItsReversalIsDeclinedWithoutHolding() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase))).isEqualTo("00");
+            assertThat(send(purchase).require(RESPONSE_CODE)).isEqualTo("05");
+
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+        }
+
+        @Test
+        void aReversalThatDoesNotMatchTheOriginalReleasesNothing() throws Exception {
+            TestCard card = activeCard(100_000);
+            TestCard otherCard = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            send(purchase);
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase).set(AMOUNT, "%012d".formatted(20_000))))
+                    .isEqualTo("13");
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase).set(PAN, otherCard.pan())))
+                    .isEqualTo("12");
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase))).as("a correct one still works").isEqualTo("00");
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+        }
+
+        @Test
+        void malformedOrUnsupportedReversalsAreRejected() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase).remove(ORIGINAL_DATA_ELEMENTS))).isEqualTo("30");
+            String reversesAFinancialMessage = "0200" + purchase.require(STAN) + "1016120000" + "0".repeat(22);
+            assertThat(reverse(AuthorizationRequests.reversalOf(purchase).set(ORIGINAL_DATA_ELEMENTS, reversesAFinancialMessage)))
+                    .isEqualTo("12");
+        }
+
+        @Test
+        void simultaneousCopiesOfAReversalReleaseOnce() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage purchase = AuthorizationRequests.purchase(card.pan(), card.expiry(), 25_000).build();
+            send(purchase);
+            IsoMessage reversal = AuthorizationRequests.reversalOf(purchase).build();
+
+            List<Future<String>> codes = new ArrayList<>();
+            try (ExecutorService terminals = Executors.newVirtualThreadPerTaskExecutor()) {
+                for (int i = 0; i < 20; i++) {
+                    codes.add(terminals.submit(() -> reverse(reversal.toBuilder("0400"))));
+                }
+                for (Future<String> code : codes) {
+                    assertThat(code.get()).isEqualTo("00");
+                }
+            }
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+        }
+
+        @Test
+        void aPurchaseRacingItsReversalNeverLeavesCreditHeld() throws Exception {
+            TestCard card = activeCard(10_000_000);
+            List<IsoMessage> purchases = new ArrayList<>();
+            for (int i = 0; i < 40; i++) {
+                purchases.add(AuthorizationRequests.purchase(card.pan(), card.expiry(), 10_000).build());
+            }
+
+            List<Future<String>> results = new ArrayList<>();
+            try (ExecutorService terminals = Executors.newVirtualThreadPerTaskExecutor()) {
+                for (IsoMessage purchase : purchases) {
+                    IsoMessage reversal = AuthorizationRequests.reversalOf(purchase).build();
+                    results.add(terminals.submit(() -> send(purchase).require(RESPONSE_CODE)));
+                    results.add(terminals.submit(() -> reverse(reversal.toBuilder("0400"))));
+                }
+                for (Future<String> result : results) {
+                    assertThat(result.get()).isIn("00", "05");
+                }
+            }
+
+            assertThat(available(card.accountId())).as("every hold released").isEqualTo(10_000_000);
+            assertThat(jdbc.sql("""
+                    SELECT count(*) FROM authorizations
+                    WHERE account_id = :id AND response_code = '00' AND reversed_at IS NULL
+                    """).param("id", card.accountId()).query(Long.class).single())
+                    .as("approved but never reversed").isZero();
         }
     }
 

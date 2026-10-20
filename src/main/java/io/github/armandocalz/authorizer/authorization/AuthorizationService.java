@@ -38,6 +38,7 @@ import org.springframework.transaction.support.TransactionTemplate;
  *
  * <p>A retransmission (same terminal, RRN and STAN) is answered with the original decision and
  * holds nothing; the same key with different transaction data is declined with 94 (ADR 0004).
+ * An authorization whose reversal arrived first is declined with 05 and holds nothing (ADR 0005).
  */
 @Service
 public class AuthorizationService {
@@ -45,16 +46,21 @@ public class AuthorizationService {
     private final CardRepository cards;
     private final CreditAccountRepository accounts;
     private final AuthorizationLog log;
+    private final ReversalLog reversals;
+    private final TransactionKeyLock keyLock;
     private final PanTokenizer tokenizer;
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final SecureRandom random = new SecureRandom();
 
     public AuthorizationService(CardRepository cards, CreditAccountRepository accounts, AuthorizationLog log,
-            PanTokenizer tokenizer, Clock clock, PlatformTransactionManager transactionManager) {
+            ReversalLog reversals, TransactionKeyLock keyLock, PanTokenizer tokenizer, Clock clock,
+            PlatformTransactionManager transactionManager) {
         this.cards = cards;
         this.accounts = accounts;
         this.log = log;
+        this.reversals = reversals;
+        this.keyLock = keyLock;
         this.tokenizer = tokenizer;
         this.clock = clock;
         this.transaction = new TransactionTemplate(transactionManager);
@@ -71,6 +77,7 @@ public class AuthorizationService {
     }
 
     private AuthorizationDecision authorizeOnce(AuthorizationRequest request) {
+        keyLock.lock(request.key());
         String panToken = tokenizer.token(request.pan());
         Optional<RecordedAuthorization> earlier = log.findByTransactionKey(request.terminalId(), request.rrn(), request.stan());
         if (earlier.isPresent()) {
@@ -81,7 +88,9 @@ public class AuthorizationService {
 
         Optional<Card> card = Luhn.isValid(request.pan()) ? cards.findByToken(panToken) : Optional.empty();
         UUID accountId = card.map(Card::accountId).orElse(null);
-        AuthorizationDecision decision = decide(request, card);
+        AuthorizationDecision decision = reversals.existsFor(request.key())
+                ? AuthorizationDecision.declined(ResponseCode.DO_NOT_HONOR)
+                : decide(request, card);
         log.record(request, panToken, accountId, decision);
         return decision;
     }

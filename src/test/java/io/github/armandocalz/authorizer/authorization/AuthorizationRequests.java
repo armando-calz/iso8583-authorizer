@@ -3,6 +3,7 @@ package io.github.armandocalz.authorizer.authorization;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AMOUNT;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.CURRENCY_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.EXPIRATION_DATE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ORIGINAL_DATA_ELEMENTS;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PAN;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RETRIEVAL_REFERENCE_NUMBER;
@@ -38,5 +39,21 @@ public final class AuthorizationRequests {
                 .set(RETRIEVAL_REFERENCE_NUMBER, "%012d".formatted(n))
                 .set(TERMINAL_ID, "TERM0001")
                 .set(CURRENCY_CODE, "484");
+    }
+
+    /** A 0400 reversing {@code original}: same card, amount, RRN and terminal; field 90 points back to it. */
+    public static IsoMessage.Builder reversalOf(IsoMessage original) {
+        int n = STAN_SEQUENCE.incrementAndGet() % 1_000_000;
+        return IsoMessage.builder("0400")
+                .set(PAN, original.require(PAN))
+                .set(PROCESSING_CODE, original.require(PROCESSING_CODE))
+                .set(AMOUNT, original.require(AMOUNT))
+                .set(TRANSMISSION_DATE_TIME, "1019120500")
+                .set(STAN, "%06d".formatted(n))
+                .set(RETRIEVAL_REFERENCE_NUMBER, original.require(RETRIEVAL_REFERENCE_NUMBER))
+                .set(TERMINAL_ID, original.require(TERMINAL_ID))
+                .set(CURRENCY_CODE, original.require(CURRENCY_CODE))
+                .set(ORIGINAL_DATA_ELEMENTS, original.mti() + original.require(STAN)
+                        + original.require(TRANSMISSION_DATE_TIME) + "0".repeat(22));
     }
 }

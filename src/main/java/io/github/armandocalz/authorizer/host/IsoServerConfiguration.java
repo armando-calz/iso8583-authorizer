@@ -1,6 +1,7 @@
 package io.github.armandocalz.authorizer.host;
 
 import io.github.armandocalz.authorizer.authorization.AuthorizationService;
+import io.github.armandocalz.authorizer.authorization.ReversalService;
 import io.github.armandocalz.authorizer.network.IsoServer;
 import io.github.armandocalz.authorizer.network.MessageHandler;
 import java.io.IOException;
@@ -15,11 +16,14 @@ import org.springframework.context.annotation.Configuration;
 class IsoServerConfiguration {
 
     @Bean
-    MessageRouter messageRouter(AuthorizationService authorizationService) {
+    MessageRouter messageRouter(AuthorizationService authorizationService, ReversalService reversalService) {
         AuthorizationHandler authorization = new AuthorizationHandler(authorizationService);
+        ReversalHandler reversal = new ReversalHandler(reversalService);
         return new MessageRouter(Map.of(
                 "0100", authorization,
                 "0101", authorization, // repeat: a retransmission the terminal flags explicitly
+                "0400", reversal,
+                "0401", reversal,
                 "0800", new NetworkManagementHandler()));
     }
 

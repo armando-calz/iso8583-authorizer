@@ -46,7 +46,7 @@ flowchart LR
 - [x] TCP server with length-prefixed framing on virtual threads
 - [x] Authorization rules: card status, expiry, Luhn check, available credit, standard response codes
 - [x] Duplicate transmission detection with idempotent responses (`0100` copies and `0101` repeats)
-- [ ] Reversals (`0400`) that restore available credit exactly once
+- [x] Reversals (`0400`/`0401`) that release held credit exactly once, in any order
 - [x] Network management (`0800` sign-on, sign-off, echo)
 - [ ] EMV: ARQC verification and ARPC generation with test keys
 - [ ] Terminal simulator CLI
@@ -72,6 +72,10 @@ Applied in order; the first rule that fails decides the response code (field 39)
 An approval (`00`) returns a 6-digit authorization code (field 38) and holds the amount against the available credit, under a row lock on the account ([ADR 0003](docs/adr/0003-issuer-data-in-postgresql-with-tokenized-pans.md)). Card numbers are stored only as HMAC tokens plus BIN and last 4 digits.
 
 **Retransmissions** (same terminal, RRN and STAN) get the original answer and authorization code, with nothing held again, even when copies arrive simultaneously. The same key with different card, amount or currency is declined with `94` ([ADR 0004](docs/adr/0004-duplicate-transmissions-answered-with-the-original-decision.md)).
+
+## Reversals
+
+A `0400` undoes an authorization the terminal is unsure about, matched through terminal, RRN and the original STAN in field 90. Held credit is released **exactly once**, whether the reversal is repeated, the original was declined, or the reversal arrives **before** the original (which is then declined with `05` and holds nothing). Authorizations and reversals of the same transaction take the same lock first, so a purchase racing its own reversal never leaves credit held ([ADR 0005](docs/adr/0005-reversals-serialized-per-transaction.md)).
 
 ## Scope and sources
 

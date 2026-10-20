@@ -7,6 +7,7 @@ import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.LOCAL_DATE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.LOCAL_TIME;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.MERCHANT_ID;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.NETWORK_MANAGEMENT_CODE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ORIGINAL_DATA_ELEMENTS;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RETRIEVAL_REFERENCE_NUMBER;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.STAN;
@@ -23,7 +24,7 @@ final class Responses {
     private static final List<Integer> MATCHING_FIELDS = List.of(
             PROCESSING_CODE, AMOUNT, TRANSMISSION_DATE_TIME, STAN, LOCAL_TIME, LOCAL_DATE,
             ACQUIRING_INSTITUTION_ID, RETRIEVAL_REFERENCE_NUMBER, TERMINAL_ID, MERCHANT_ID,
-            CURRENCY_CODE, NETWORK_MANAGEMENT_CODE);
+            CURRENCY_CODE, NETWORK_MANAGEMENT_CODE, ORIGINAL_DATA_ELEMENTS);
 
     private Responses() {
     }

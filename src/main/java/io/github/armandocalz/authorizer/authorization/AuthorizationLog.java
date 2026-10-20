@@ -13,4 +13,8 @@ public interface AuthorizationLog {
     void record(AuthorizationRequest request, String panToken, UUID accountId, AuthorizationDecision decision);
 
     Optional<RecordedAuthorization> findByTransactionKey(String terminalId, String rrn, String stan);
+
+    Optional<ReversibleAuthorization> findForReversal(TransactionKey key);
+
+    void markReversed(long authorizationId);
 }

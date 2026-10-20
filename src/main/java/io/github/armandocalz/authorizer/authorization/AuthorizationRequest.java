@@ -50,6 +50,10 @@ public record AuthorizationRequest(
                 message.require(TRANSMISSION_DATE_TIME));
     }
 
+    public TransactionKey key() {
+        return new TransactionKey(terminalId, rrn, stan);
+    }
+
     /** Processing code 00xxxx: purchase of goods or services. */
     public boolean isPurchase() {
         return processingCode.startsWith("00");
