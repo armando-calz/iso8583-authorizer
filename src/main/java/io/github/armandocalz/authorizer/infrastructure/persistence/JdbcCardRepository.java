@@ -50,4 +50,12 @@ class JdbcCardRepository implements CardRepository {
                 })
                 .optional();
     }
+
+    @Override
+    public boolean advanceAtc(String panToken, int atc) {
+        return jdbc.sql("UPDATE cards SET last_atc = :atc WHERE pan_token = :token AND (last_atc IS NULL OR last_atc < :atc)")
+                .param("atc", atc)
+                .param("token", panToken)
+                .update() == 1;
+    }
 }

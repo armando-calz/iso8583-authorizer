@@ -7,6 +7,7 @@ import io.github.armandocalz.authorizer.card.CardRepository;
 import io.github.armandocalz.authorizer.card.CardStatus;
 import io.github.armandocalz.authorizer.card.Luhn;
 import io.github.armandocalz.authorizer.card.PanTokenizer;
+import io.github.armandocalz.authorizer.emv.EmvCryptography;
 import io.github.armandocalz.authorizer.iso8583.ResponseCode;
 import java.security.SecureRandom;
 import java.time.Clock;
@@ -25,6 +26,8 @@ import org.springframework.transaction.support.TransactionTemplate;
  *   <li>Purchase processing code only, otherwise 12 (invalid transaction)</li>
  *   <li>PAN passes the Luhn check, otherwise 14 (invalid card number)</li>
  *   <li>Card exists, otherwise 14</li>
+ *   <li>Chip transactions: the ARQC is valid, the amount and currency in fields 4 and 49 are the
+ *       ones the card signed, and the ATC is above the last one seen, otherwise 05</li>
  *   <li>Card is active, otherwise 62 (restricted card)</li>
  *   <li>Card is not expired, otherwise 54 (expired card)</li>
  *   <li>Expiry date sent matches the card's, otherwise 05 (do not honor)</li>
@@ -49,12 +52,13 @@ public class AuthorizationService {
     private final ReversalLog reversals;
     private final TransactionKeyLock keyLock;
     private final PanTokenizer tokenizer;
+    private final EmvCryptography emv;
     private final Clock clock;
     private final TransactionTemplate transaction;
     private final SecureRandom random = new SecureRandom();
 
     public AuthorizationService(CardRepository cards, CreditAccountRepository accounts, AuthorizationLog log,
-            ReversalLog reversals, TransactionKeyLock keyLock, PanTokenizer tokenizer, Clock clock,
+            ReversalLog reversals, TransactionKeyLock keyLock, PanTokenizer tokenizer, EmvCryptography emv, Clock clock,
             PlatformTransactionManager transactionManager) {
         this.cards = cards;
         this.accounts = accounts;
@@ -62,6 +66,7 @@ public class AuthorizationService {
         this.reversals = reversals;
         this.keyLock = keyLock;
         this.tokenizer = tokenizer;
+        this.emv = emv;
         this.clock = clock;
         this.transaction = new TransactionTemplate(transactionManager);
     }
@@ -103,6 +108,20 @@ public class AuthorizationService {
             return AuthorizationDecision.declined(ResponseCode.INVALID_CARD_NUMBER);
         }
         Card card = maybeCard.get();
+        if (request.hasIccData()) {
+            if (!emv.verifyArqc(request.pan(), request.iccData())) {
+                return AuthorizationDecision.declined(ResponseCode.DO_NOT_HONOR);
+            }
+            // The cryptogram signs the amount inside field 55, not field 4: a terminal could send
+            // a genuine cryptogram for 25.00 with field 4 saying 900.00.
+            if (request.iccData().amountAuthorisedMinor() != request.amountMinor()
+                    || !request.iccData().currencyCode().equals(request.currency())) {
+                return AuthorizationDecision.declined(ResponseCode.DO_NOT_HONOR);
+            }
+            if (!cards.advanceAtc(card.panToken(), request.iccData().atc())) {
+                return AuthorizationDecision.declined(ResponseCode.DO_NOT_HONOR);
+            }
+        }
         if (card.status() != CardStatus.ACTIVE) {
             return AuthorizationDecision.declined(ResponseCode.RESTRICTED_CARD);
         }

@@ -48,7 +48,7 @@ flowchart LR
 - [x] Duplicate transmission detection with idempotent responses (`0100` copies and `0101` repeats)
 - [x] Reversals (`0400`/`0401`) that release held credit exactly once, in any order
 - [x] Network management (`0800` sign-on, sign-off, echo)
-- [ ] EMV: ARQC verification and ARPC generation with test keys
+- [x] EMV: ARQC verification, amount/currency binding, ATC replay protection and ARPC generation (test keys)
 - [ ] Terminal simulator CLI
 - [ ] Docker Compose setup
 
@@ -62,6 +62,7 @@ Applied in order; the first rule that fails decides the response code (field 39)
 |---|---|
 | Processing code is a purchase (`00xxxx`) | `12` invalid transaction |
 | PAN passes the Luhn check and belongs to a known card | `14` invalid card number |
+| Chip only: valid ARQC, fields 4/49 match the signed amount/currency, ATC not replayed | `05` do not honor |
 | Card is active (not blocked, lost or stolen) | `62` restricted card |
 | Card is not expired | `54` expired card |
 | Expiry date sent matches the card's | `05` do not honor |
@@ -72,6 +73,10 @@ Applied in order; the first rule that fails decides the response code (field 39)
 An approval (`00`) returns a 6-digit authorization code (field 38) and holds the amount against the available credit, under a row lock on the account ([ADR 0003](docs/adr/0003-issuer-data-in-postgresql-with-tokenized-pans.md)). Card numbers are stored only as HMAC tokens plus BIN and last 4 digits.
 
 **Retransmissions** (same terminal, RRN and STAN) get the original answer and authorization code, with nothing held again, even when copies arrive simultaneously. The same key with different card, amount or currency is declined with `94` ([ADR 0004](docs/adr/0004-duplicate-transmissions-answered-with-the-original-decision.md)).
+
+## EMV (chip) transactions
+
+For chip transactions the host verifies the **ARQC** in field 55 (EMV Book 2: Option A card key, Common Session Key, ISO/IEC 9797-1 MAC Algorithm 3). It checks that the amount and currency in fields 4 and 49 are the ones the card signed, and rejects replayed transaction counters (ATC). It answers with an **ARPC** (Method 1, tag 91), so the card can authenticate the issuer. A test found the host approving 900.00 with a genuine cryptogram for 25.00 before the amount binding existed ([ADR 0006](docs/adr/0006-emv-cryptogram-verification.md)).
 
 ## Reversals
 

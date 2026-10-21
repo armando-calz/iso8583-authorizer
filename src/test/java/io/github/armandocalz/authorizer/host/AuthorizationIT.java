@@ -4,6 +4,8 @@ import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AMOUNT;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AUTHORIZATION_ID_RESPONSE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.CURRENCY_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.EXPIRATION_DATE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.POS_ENTRY_MODE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ICC_DATA;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ORIGINAL_DATA_ELEMENTS;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PAN;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_CODE;
@@ -21,13 +23,21 @@ import io.github.armandocalz.authorizer.card.Card;
 import io.github.armandocalz.authorizer.card.CardRepository;
 import io.github.armandocalz.authorizer.card.CardStatus;
 import io.github.armandocalz.authorizer.card.PanTokenizer;
+import io.github.armandocalz.authorizer.emv.EmvCardSimulator;
+import io.github.armandocalz.authorizer.emv.EmvCryptography;
+import io.github.armandocalz.authorizer.emv.IccData;
+import io.github.armandocalz.authorizer.emv.Tlv;
 import io.github.armandocalz.authorizer.host.IsoServerConfiguration.IsoServerLifecycle;
 import io.github.armandocalz.authorizer.iso8583.IsoMessage;
 import io.github.armandocalz.authorizer.network.IsoClient;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.HexFormat;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -55,6 +65,7 @@ class AuthorizationIT {
     @Autowired CreditAccountRepository accounts;
     @Autowired PanTokenizer tokenizer;
     @Autowired JdbcClient jdbc;
+    @Autowired EmvCryptography emv;
 
     private record TestCard(String pan, YearMonth expiry, UUID accountId) {
     }
@@ -408,6 +419,112 @@ class AuthorizationIT {
                     WHERE account_id = :id AND response_code = '00' AND reversed_at IS NULL
                     """).param("id", card.accountId()).query(Long.class).single())
                     .as("approved but never reversed").isZero();
+        }
+    }
+
+    @Nested
+    class ChipTransactions {
+
+        private final EmvCardSimulator chip = new EmvCardSimulator(emv);
+        private final HexFormat hex = HexFormat.of().withUpperCase();
+
+        private IsoMessage.Builder chipPurchase(TestCard card, long amountMinor, int atc) {
+            return AuthorizationRequests.purchase(card.pan(), card.expiry(), amountMinor)
+                    .set(POS_ENTRY_MODE, "051")
+                    .set(ICC_DATA, chip.iccData(card.pan(), "01", atc, amountMinor, MXN, LocalDate.now(), hex.parseHex("1A2B3C4D")));
+        }
+
+        private byte[] issuerAuthentication(IsoMessage response) {
+            return Tlv.parse(hex.parseHex(response.require(ICC_DATA))).get(IccData.ISSUER_AUTHENTICATION_DATA);
+        }
+
+        @Test
+        void approvesAGenuineChipAndAnswersWithTheArpc() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = chipPurchase(card, 25_000, 1).build();
+
+            IsoMessage response = send(request);
+
+            assertThat(response.require(RESPONSE_CODE)).isEqualTo("00");
+            assertThat(issuerAuthentication(response))
+                    .isEqualTo(emv.issuerAuthenticationData(card.pan(), IccData.parse(request.require(ICC_DATA)), "00"));
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+        }
+
+        @Test
+        void declinesAnAlteredCryptogramWithoutArpc() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage genuine = chipPurchase(card, 25_000, 1).build();
+            Map<Integer, byte[]> tlv = new LinkedHashMap<>(Tlv.parse(hex.parseHex(genuine.require(ICC_DATA))));
+            tlv.get(IccData.APPLICATION_CRYPTOGRAM)[0] ^= 0x01;
+            IsoMessage forged = genuine.toBuilder("0100").set(ICC_DATA, hex.formatHex(Tlv.encode(tlv))).build();
+
+            IsoMessage response = send(forged);
+
+            assertThat(response.require(RESPONSE_CODE)).isEqualTo("05");
+            assertThat(response.has(ICC_DATA)).isFalse();
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+        }
+
+        @Test
+        void declinesTheAmountTheCardDidNotSign() throws Exception {
+            TestCard card = activeCard(100_000);
+            // The terminal asks for 900.00 but the chip signed 25.00
+            IsoMessage tampered = chipPurchase(card, 25_000, 1).set(AMOUNT, "%012d".formatted(90_000)).build();
+
+            assertThat(send(tampered).require(RESPONSE_CODE)).isEqualTo("05");
+            assertThat(available(card.accountId())).isEqualTo(100_000);
+        }
+
+        @Test
+        void declinesACurrencyTheCardDidNotSign() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage tampered = chipPurchase(card, 25_000, 1).set(CURRENCY_CODE, "840").build();
+
+            assertThat(send(tampered).require(RESPONSE_CODE)).isEqualTo("05");
+        }
+
+        @Test
+        void declinesAReplayedCryptogram() throws Exception {
+            TestCard card = activeCard(100_000);
+            assertThat(send(chipPurchase(card, 10_000, 5).build()).require(RESPONSE_CODE)).isEqualTo("00");
+
+            assertThat(send(chipPurchase(card, 10_000, 5).build()).require(RESPONSE_CODE)).as("same ATC").isEqualTo("05");
+            assertThat(send(chipPurchase(card, 10_000, 4).build()).require(RESPONSE_CODE)).as("older ATC").isEqualTo("05");
+            assertThat(send(chipPurchase(card, 10_000, 6).build()).require(RESPONSE_CODE)).as("next ATC").isEqualTo("00");
+            assertThat(available(card.accountId())).isEqualTo(80_000);
+        }
+
+        @Test
+        void aRetransmittedChipRequestGetsTheSameArpc() throws Exception {
+            TestCard card = activeCard(100_000);
+            IsoMessage request = chipPurchase(card, 25_000, 1).build();
+
+            IsoMessage first = send(request);
+            IsoMessage again = send(request);
+
+            assertThat(again.require(RESPONSE_CODE)).isEqualTo("00");
+            assertThat(issuerAuthentication(again)).isEqualTo(issuerAuthentication(first));
+            assertThat(available(card.accountId())).isEqualTo(75_000);
+        }
+
+        @Test
+        void aDeclinedChipRequestStillAuthenticatesTheIssuer() throws Exception {
+            TestCard card = activeCard(10_000);
+            IsoMessage request = chipPurchase(card, 20_000, 1).build();
+
+            IsoMessage response = send(request);
+
+            assertThat(response.require(RESPONSE_CODE)).isEqualTo("51");
+            assertThat(hex.formatHex(issuerAuthentication(response))).endsWith("3531"); // ARC "51"
+        }
+
+        @Test
+        void chipEntryWithoutValidIccDataIs30() throws Exception {
+            TestCard card = activeCard(100_000);
+
+            assertThat(responseCode(chipPurchase(card, 100, 1).remove(ICC_DATA))).isEqualTo("30");
+            assertThat(responseCode(chipPurchase(card, 100, 1).set(ICC_DATA, "9F2608A1B2C3"))).isEqualTo("30");
         }
     }
 

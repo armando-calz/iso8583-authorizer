@@ -2,6 +2,7 @@ package io.github.armandocalz.authorizer.host;
 
 import io.github.armandocalz.authorizer.authorization.AuthorizationService;
 import io.github.armandocalz.authorizer.authorization.ReversalService;
+import io.github.armandocalz.authorizer.emv.EmvCryptography;
 import io.github.armandocalz.authorizer.network.IsoServer;
 import io.github.armandocalz.authorizer.network.MessageHandler;
 import java.io.IOException;
@@ -16,8 +17,9 @@ import org.springframework.context.annotation.Configuration;
 class IsoServerConfiguration {
 
     @Bean
-    MessageRouter messageRouter(AuthorizationService authorizationService, ReversalService reversalService) {
-        AuthorizationHandler authorization = new AuthorizationHandler(authorizationService);
+    MessageRouter messageRouter(
+            AuthorizationService authorizationService, ReversalService reversalService, EmvCryptography emvCryptography) {
+        AuthorizationHandler authorization = new AuthorizationHandler(authorizationService, emvCryptography);
         ReversalHandler reversal = new ReversalHandler(reversalService);
         return new MessageRouter(Map.of(
                 "0100", authorization,

@@ -3,13 +3,16 @@ package io.github.armandocalz.authorizer.authorization;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.AMOUNT;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.CURRENCY_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.EXPIRATION_DATE;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.ICC_DATA;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PAN;
+import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.POS_ENTRY_MODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.PROCESSING_CODE;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.RETRIEVAL_REFERENCE_NUMBER;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.STAN;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.TERMINAL_ID;
 import static io.github.armandocalz.authorizer.iso8583.Iso8583Fields.TRANSMISSION_DATE_TIME;
 
+import io.github.armandocalz.authorizer.emv.IccData;
 import io.github.armandocalz.authorizer.iso8583.IsoFormatException;
 import io.github.armandocalz.authorizer.iso8583.IsoMessage;
 import java.time.DateTimeException;
@@ -25,7 +28,9 @@ public record AuthorizationRequest(
         String stan,
         String rrn,
         String terminalId,
-        String transmissionDateTime) {
+        String transmissionDateTime,
+        String posEntryMode,
+        IccData iccData) {
 
     /**
      * @throws IsoFormatException if a required field is missing or malformed (answered with 30)
@@ -38,6 +43,15 @@ public record AuthorizationRequest(
         } catch (DateTimeException e) {
             throw new IsoFormatException("Field 14: invalid expiration date " + expiry);
         }
+        String posEntryMode = message.get(POS_ENTRY_MODE).orElse("");
+        IccData iccData = null;
+        if (isChip(posEntryMode) || message.has(ICC_DATA)) {
+            try {
+                iccData = IccData.parse(message.require(ICC_DATA));
+            } catch (IllegalArgumentException e) {
+                throw new IsoFormatException("Field 55: " + e.getMessage());
+            }
+        }
         return new AuthorizationRequest(
                 message.require(PAN),
                 message.require(PROCESSING_CODE),
@@ -47,7 +61,18 @@ public record AuthorizationRequest(
                 message.require(STAN),
                 message.require(RETRIEVAL_REFERENCE_NUMBER),
                 message.require(TERMINAL_ID),
-                message.require(TRANSMISSION_DATE_TIME));
+                message.require(TRANSMISSION_DATE_TIME),
+                posEntryMode,
+                iccData);
+    }
+
+    /** POS entry mode 05x (contact chip) or 07x (contactless chip): field 55 is mandatory. */
+    private static boolean isChip(String posEntryMode) {
+        return posEntryMode.startsWith("05") || posEntryMode.startsWith("07");
+    }
+
+    public boolean hasIccData() {
+        return iccData != null;
     }
 
     public TransactionKey key() {

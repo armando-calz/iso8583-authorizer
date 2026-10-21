@@ -51,6 +51,16 @@ public final class IccData {
         return ((atc[0] & 0xFF) << 8) | (atc[1] & 0xFF);
     }
 
+    /** Amount authorised (tag 9F02, n12 BCD) in minor units: the amount the card signed. */
+    public long amountAuthorisedMinor() {
+        return Long.parseLong(HexFormat.of().formatHex(objects.get(0x9F02)));
+    }
+
+    /** Transaction currency code (tag 5F2A, n3 BCD), e.g. "484": the currency the card signed. */
+    public String currencyCode() {
+        return HexFormat.of().formatHex(objects.get(0x5F2A)).substring(1);
+    }
+
     /** Two digits; "00" when the card does not send one. */
     public String panSequenceNumber() {
         byte[] psn = objects.get(PAN_SEQUENCE_NUMBER);

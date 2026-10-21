@@ -10,3 +10,7 @@ authorizer:
     port: 8583
   # Key for tokenizing PANs (HMAC-SHA256), hex. DEVELOPMENT VALUE ONLY: a real issuer keeps it in an HSM or secrets manager.
   pan-token-key: 646576706b2d646576706b2d646576706b2d646576706b2d646576706b2d6465
+  emv:
+    # Issuer master key for application cryptograms (IMK-AC), 16 bytes hex. TEST KEY ONLY: a real
+    # issuer keeps it in an HSM and never exposes it to the application.
+    imk-ac: 0123456789ABCDEFFEDCBA9876543210
