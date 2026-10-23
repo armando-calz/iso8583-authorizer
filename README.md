@@ -49,7 +49,7 @@ flowchart LR
 - [x] Reversals (`0400`/`0401`) that release held credit exactly once, in any order
 - [x] Network management (`0800` sign-on, sign-off, echo)
 - [x] EMV: ARQC verification, amount/currency binding, ATC replay protection and ARPC generation (test keys)
-- [ ] Terminal simulator CLI
+- [x] Terminal simulator CLI with a self-checking demo scenario
 - [ ] Docker Compose setup
 
 Design decisions are recorded as ADRs in [`docs/adr`](docs/adr).
