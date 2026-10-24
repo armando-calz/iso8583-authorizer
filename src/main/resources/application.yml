@@ -4,6 +4,10 @@ spring:
   threads:
     virtual:
       enabled: true
+  main:
+    # The ISO 8583 server runs on virtual threads, which are always daemon threads: without this
+    # the JVM would exit right after startup, since there is no web server keeping it alive.
+    keep-alive: true
 
 authorizer:
   iso:

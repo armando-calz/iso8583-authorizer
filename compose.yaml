@@ -1,0 +1,58 @@
+# docker compose up -d                      # PostgreSQL + the authorization host (demo cards loaded)
+# docker compose run --rm terminal demo     # guided, self-checking walk-through over ISO 8583
+# Credentials and keys below are for this local stack only.
+name: iso8583-authorizer
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: authorizer
+      POSTGRES_USER: authorizer
+      POSTGRES_PASSWORD: authorizer
+    volumes:
+      - issuer-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U authorizer -d authorizer"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  host:
+    image: iso8583-authorizer:local
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: demo
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/authorizer
+      SPRING_DATASOURCE_USERNAME: authorizer
+      SPRING_DATASOURCE_PASSWORD: authorizer
+    ports:
+      - "8583:8583"
+    healthcheck:
+      test: ["CMD", "bash", "-c", "</dev/tcp/localhost/8583"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  terminal:
+    image: iso8583-authorizer:local
+    profiles: ["tools"]   # not started by `up`; use `docker compose run --rm terminal <command>`
+    depends_on:
+      host:
+        condition: service_healthy
+    environment:
+      AUTHORIZER_HOST: host
+      AUTHORIZER_PORT: "8583"
+      AUTHORIZER_TERMINAL_STATE: /state/atc   # the simulated chip's transaction counter
+    volumes:
+      - terminal-state:/state
+    entrypoint: ["java", "-Dloader.main=io.github.armandocalz.authorizer.terminal.TerminalSimulator",
+                 "org.springframework.boot.loader.launch.PropertiesLauncher"]
+    command: ["demo"]
+
+volumes:
+  issuer-data:
+  terminal-state:

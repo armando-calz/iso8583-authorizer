@@ -6,6 +6,48 @@ A card **authorization host** that speaks ISO 8583: it receives authorization re
 
 > **Status:** 🚧 in development. See the roadmap below.
 
+## Quick start
+
+Only Docker is required.
+
+```bash
+git clone https://github.com/armando-calz/iso8583-authorizer.git && cd iso8583-authorizer
+docker compose up -d                    # PostgreSQL + the authorization host, with demo test cards
+docker compose run --rm terminal demo   # a terminal walks through the host's behavior over ISO 8583
+```
+
+Every step states the response it expects and checks it (real output):
+
+```text
+Magnetic stripe purchase, retransmission and reversal
+  ✓ 00 0110 Purchase 250.00 MXN  (22 ms)
+  ✓ 00 0110 Same purchase retransmitted (no answer arrived)  (2 ms)
+  ✓         ...gets the original authorization code, holds nothing again
+  ✓ 00 0410 0400 reversal of the purchase  (6 ms)
+  ✓ 00 0410 0400 reversal repeated  (1 ms)
+
+EMV chip purchase
+  ✓ 00 0110 Chip purchase 1,234.50 MXN  (17 ms)
+  ✓         ...response carries a valid ARPC (issuer authenticated)
+  ✓ 05 0110 Same chip data with field 4 changed to 9,999.00 (not what the chip signed)  (4 ms)
+  ✓ 05 0110 Captured cryptogram replayed as a new transaction  (5 ms)
+  ✓ 00 0410 0400 reversal of the chip purchase  (3 ms)
+
+Declines
+  ✓ 51 0110 Purchase above the credit limit (20,000.00)  (2 ms)
+  ✓ 62 0110 Blocked card  (2 ms)
+  ✓ 54 0110 Expired card  (3 ms)
+  ✓ 14 0110 Unknown card  (2 ms)
+
+Reversal arriving before its purchase
+  ✓ 00 0410 0400 for a purchase the host has not seen yet  (3 ms)
+  ✓ 05 0110 The late purchase arrives: declined, nothing held  (4 ms)
+
+17 passed, 0 failed
+```
+
+Single requests: `docker compose run --rm terminal echo`, or `docker compose run --rm terminal purchase 99.90 --chip`. The demo cards are public test numbers (`4111 1111 1111 1111` active, `5555 5555 5555 4444` blocked, `4000 0566 5566 5556` expired).
+
 ## Why
 
 Every card payment ends in a message like this one: a terminal asks the issuer *"can this card spend 250.00 MXN here?"* and has a few seconds to get an answer. The difficult parts are rarely the happy path:
@@ -50,7 +92,7 @@ flowchart LR
 - [x] Network management (`0800` sign-on, sign-off, echo)
 - [x] EMV: ARQC verification, amount/currency binding, ATC replay protection and ARPC generation (test keys)
 - [x] Terminal simulator CLI with a self-checking demo scenario
-- [ ] Docker Compose setup
+- [x] Docker Compose setup, with the demo run end to end in CI
 
 Design decisions are recorded as ADRs in [`docs/adr`](docs/adr).
 

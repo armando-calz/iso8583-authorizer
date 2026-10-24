@@ -21,3 +21,23 @@ jobs:
 
       - name: Build and test
         run: ./mvnw -B verify
+
+  demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Start PostgreSQL and the host
+        run: docker compose up --build --detach --wait --wait-timeout 180
+
+      - name: Run the terminal demo end to end
+        run: docker compose run --rm terminal demo
+
+      - name: Host logs
+        if: failure()
+        run: docker compose logs host
+
+      - name: Tear down
+        if: always()
+        run: docker compose down --volumes
