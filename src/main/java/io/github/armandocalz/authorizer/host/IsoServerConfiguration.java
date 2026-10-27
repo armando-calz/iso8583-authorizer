@@ -4,6 +4,7 @@ import io.github.armandocalz.authorizer.authorization.AuthorizationService;
 import io.github.armandocalz.authorizer.authorization.ReversalService;
 import io.github.armandocalz.authorizer.emv.EmvCryptography;
 import io.github.armandocalz.authorizer.network.IsoServer;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.github.armandocalz.authorizer.network.MessageHandler;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -30,8 +31,9 @@ public class IsoServerConfiguration {
     }
 
     @Bean
-    IsoServerLifecycle isoServer(MessageHandler messageRouter, @Value("${authorizer.iso.port:8583}") int port) {
-        return new IsoServerLifecycle(messageRouter, port);
+    IsoServerLifecycle isoServer(
+            MessageRouter messageRouter, MeterRegistry meterRegistry, @Value("${authorizer.iso.port:8583}") int port) {
+        return new IsoServerLifecycle(new MeteredMessageHandler(messageRouter, meterRegistry), port);
     }
 
     /** Starts the TCP server with the application context and stops it on shutdown. */

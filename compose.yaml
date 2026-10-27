@@ -30,7 +30,8 @@ services:
       SPRING_DATASOURCE_USERNAME: authorizer
       SPRING_DATASOURCE_PASSWORD: authorizer
     ports:
-      - "8583:8583"
+      - "8583:8583"   # ISO 8583
+      - "8080:8080"   # operations: /actuator/health, /actuator/prometheus
     healthcheck:
       test: ["CMD", "bash", "-c", "</dev/tcp/localhost/8583"]
       interval: 2s

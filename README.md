@@ -124,6 +124,21 @@ For chip transactions the host verifies the **ARQC** in field 55 (EMV Book 2: Op
 
 A `0400` undoes an authorization the terminal is unsure about, matched through terminal, RRN and the original STAN in field 90. Held credit is released **exactly once**, whether the reversal is repeated, the original was declined, or the reversal arrives **before** the original (which is then declined with `05` and holds nothing). Authorizations and reversals of the same transaction take the same lock first, so a purchase racing its own reversal never leaves credit held ([ADR 0005](docs/adr/0005-reversals-serialized-per-transaction.md)).
 
+## Observability
+
+Every ISO 8583 exchange is recorded in one Micrometer timer, `iso8583.messages`, tagged with the request MTI, the response MTI and the response code. Approval and decline rates per code, and latency percentiles, come out of it. Card data is never used as a tag. HTTP on port 8080 is for operations only: `/actuator/health` and `/actuator/prometheus`. After one demo run:
+
+```text
+iso8583_messages_seconds_count{mti="0100",response_code="00",response_mti="0110"} 3
+iso8583_messages_seconds_count{mti="0100",response_code="05",response_mti="0110"} 3
+iso8583_messages_seconds_count{mti="0100",response_code="14",response_mti="0110"} 1
+iso8583_messages_seconds_count{mti="0100",response_code="51",response_mti="0110"} 1
+iso8583_messages_seconds_count{mti="0100",response_code="54",response_mti="0110"} 1
+iso8583_messages_seconds_count{mti="0100",response_code="62",response_mti="0110"} 1
+iso8583_messages_seconds_count{mti="0400",response_code="00",response_mti="0410"} 4
+iso8583_messages_seconds_count{mti="0800",response_code="00",response_mti="0810"} 1
+```
+
 ## Scope and sources
 
 Built only from **public** material: the ISO 8583:1987 data element definitions as widely documented, and the EMV specifications published by EMVCo. It does not use or reproduce any network's or processor's proprietary message specification. All keys are test keys and all card numbers are test numbers. It is a learning and portfolio project, not a certified payment system.

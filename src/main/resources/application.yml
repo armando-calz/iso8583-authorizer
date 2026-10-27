@@ -5,9 +5,23 @@ spring:
     virtual:
       enabled: true
   main:
-    # The ISO 8583 server runs on virtual threads, which are always daemon threads: without this
-    # the JVM would exit right after startup, since there is no web server keeping it alive.
+    # The ISO 8583 server runs on virtual threads, which are always daemon threads; keep the JVM
+    # alive even if no other non-daemon thread is running.
     keep-alive: true
+
+# HTTP is only for operations: health and metrics. Authorizations go over ISO 8583 on authorizer.iso.port.
+server:
+  port: 8080
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus,metrics
+  metrics:
+    distribution:
+      percentiles-histogram:
+        iso8583.messages: true
 
 authorizer:
   iso:
