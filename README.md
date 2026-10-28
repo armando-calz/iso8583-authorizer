@@ -4,7 +4,7 @@
 
 A card **authorization host** that speaks ISO 8583: it receives authorization requests from terminals over TCP, applies issuer rules (card status, expiry, credit limit, duplicates, EMV cryptograms) and answers with the standard response codes, in a few milliseconds and without losing a cent under retries and reversals.
 
-> **Status:** 🚧 in development. See the roadmap below.
+> **Status:** v1.0.0. Complete for its scope: see the [changelog](CHANGELOG.md) and [what a production issuer would add](#not-covered-yet).
 
 ## Quick start
 
@@ -138,6 +138,16 @@ iso8583_messages_seconds_count{mti="0100",response_code="62",response_mti="0110"
 iso8583_messages_seconds_count{mti="0400",response_code="00",response_mti="0410"} 4
 iso8583_messages_seconds_count{mti="0800",response_code="00",response_mti="0810"} 1
 ```
+
+## Not covered (yet)
+
+What a production issuer host would still need:
+
+- **Key management:** the issuer master key and the PAN token key are configuration values. In production they live in an HSM, are exchanged under TR-31 key blocks and are rotated.
+- **Real network dialects:** each network specifies its own ISO 8583 variant (encoding, private fields, MAC on messages). This host implements one consistent public dialect.
+- **More message types:** financial messages (`0200`), advices (`0120`/`0420`), partial reversals (field 95), and settlement and clearing files.
+- **Duplicate and ATC windows:** duplicates are checked forever and ATCs must strictly increase. Real hosts use a time window and tolerate out-of-order chip transactions.
+- **Stand-in and risk:** velocity limits, fraud scoring and stand-in processing when the issuer is unavailable.
 
 ## Scope and sources
 

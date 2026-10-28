@@ -10,7 +10,7 @@
 	</parent>
 	<groupId>io.github.armandocalz</groupId>
 	<artifactId>iso8583-authorizer</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<version>1.0.0</version>
 	<name>iso8583-authorizer</name>
 	<description>ISO 8583 card authorization simulator</description>
 	<url>https://github.com/armando-calz/iso8583-authorizer</url>
